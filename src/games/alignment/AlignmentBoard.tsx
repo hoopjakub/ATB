@@ -278,7 +278,14 @@ export default function AlignmentBoard({ roomId }: { roomId: string }) {
                       </button>
                     )}
                     {hoveredId === id && !drag && (
-                      <div className="align-tooltip">
+                      <div
+                        className={[
+                          "align-tooltip",
+                          p.y < 0.18 && "align-tooltip--below",
+                          p.x < 0.18 && "align-tooltip--left",
+                          p.x > 0.82 && "align-tooltip--right",
+                        ].filter(Boolean).join(" ")}
+                      >
                         <div>{item.title}</div>
                         <div>
                           <strong>{p2.top}%</strong> {state.labels.top || "top"} · <strong>{p2.bottom}%</strong> {state.labels.bottom || "bottom"}

@@ -18,43 +18,106 @@ function remember(key, data) {
   cache.set(key, { at: Date.now(), data });
 }
 
-// Jikan is a shared free service that wraps MyAnimeList — it 504s occasionally,
-// and sometimes MAL itself is down behind it (Jikan reports that as a 5xx with
-// a JSON body explaining as much). Retry with backoff, and surface MAL-down
-// distinctly from "we're broken" so users aren't left guessing.
-class UpstreamDownError extends Error {}
-
+// generic retry helper for plain GET upstreams (RAWG)
 async function fetchWithRetry(url, tries = 4) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
       if (r.ok) return r;
-      if (r.status >= 500) {
-        const body = await r.json().catch(() => null);
-        if (body?.message?.toLowerCase().includes("myanimelist")) {
-          throw new UpstreamDownError(body.message);
-        }
-        lastErr = new Error(`upstream ${r.status}`);
-      } else if (r.status === 429) {
-        lastErr = new Error("rate limited");
-      } else {
-        throw new Error(`upstream ${r.status}`);
-      }
+      lastErr = new Error(`upstream ${r.status}`);
+      if (r.status < 500 && r.status !== 429) throw lastErr;
     } catch (err) {
       lastErr = err;
-      if (err instanceof UpstreamDownError) break;
     }
     if (i < tries - 1) await new Promise((res) => setTimeout(res, 600 * (i + 1)));
   }
   throw lastErr;
 }
 
-function jikanErrorPayload(err) {
-  if (err instanceof UpstreamDownError) {
-    return { error: "mal_down", message: "MyAnimeList itself looks to be down or refusing connections right now (not just us) — try again in a bit." };
-  }
+function searchErrorPayload(err) {
   return { error: "search_failed", message: `search failed: ${err.message}` };
+}
+
+// AniList's public GraphQL API (no key needed) — covers both anime and manga
+// under one Media type, plus character search. It rate-limits per-IP (usually
+// ~30 req/min) and returns a Retry-After header on 429, which we honor.
+const ANILIST_ENDPOINT = "https://graphql.anilist.co";
+
+async function anilistQuery(query, variables, tries = 3) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(ANILIST_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ query, variables }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (r.ok) return (await r.json()).data;
+      if (r.status === 429) {
+        const retryAfter = Number(r.headers.get("retry-after")) || 1.5 * (i + 1);
+        lastErr = new Error("rate limited by AniList");
+        await new Promise((res) => setTimeout(res, retryAfter * 1000));
+        continue;
+      }
+      const body = await r.json().catch(() => null);
+      throw new Error(body?.errors?.[0]?.message || `AniList upstream ${r.status}`);
+    } catch (err) {
+      lastErr = err;
+      if (!/rate limited/i.test(err.message)) break;
+    }
+  }
+  throw lastErr;
+}
+
+const MEDIA_SEARCH_QUERY = `
+query ($search: String, $type: MediaType) {
+  Page(page: 1, perPage: 24) {
+    media(search: $search, type: $type, sort: SEARCH_MATCH) {
+      id
+      title { romaji english }
+      coverImage { extraLarge large }
+      startDate { year }
+      format
+    }
+  }
+}`;
+
+async function searchAniListMedia(type, q) {
+  const data = await anilistQuery(MEDIA_SEARCH_QUERY, { search: q, type });
+  return (data.Page.media || []).map((m) => ({
+    id: `anilist-${type.toLowerCase()}-${m.id}`,
+    source: "anilist",
+    external_id: String(m.id),
+    title: m.title.english || m.title.romaji,
+    image_url: m.coverImage?.extraLarge || m.coverImage?.large,
+    subtitle: [m.format, m.startDate?.year].filter(Boolean).join(" · "),
+  })).filter((i) => i.image_url);
+}
+
+const CHARACTER_SEARCH_QUERY = `
+query ($search: String) {
+  Page(page: 1, perPage: 24) {
+    characters(search: $search, sort: SEARCH_MATCH) {
+      id
+      name { full }
+      image { large }
+      favourites
+    }
+  }
+}`;
+
+async function searchAniListCharacters(q) {
+  const data = await anilistQuery(CHARACTER_SEARCH_QUERY, { search: q });
+  return (data.Page.characters || []).map((c) => ({
+    id: `anilist-char-${c.id}`,
+    source: "anilist",
+    external_id: String(c.id),
+    title: c.name.full,
+    image_url: c.image?.large,
+    subtitle: c.favourites ? `♥ ${c.favourites.toLocaleString()}` : "",
+  })).filter((i) => i.image_url);
 }
 
 const EXT_BY_MIME = {
@@ -99,7 +162,7 @@ mediaRouter.post("/upload", upload.array("files", 10), (req, res) => {
   res.json({ items });
 });
 
-// ---- anime via Jikan (free, no key) -------------------------------------------
+// ---- anime / manga / characters via AniList (free, no key) --------------------
 mediaRouter.get("/search/anime", async (req, res) => {
   const q = String(req.query.q || "").trim();
   if (!q) return res.json({ items: [] });
@@ -107,24 +170,29 @@ mediaRouter.get("/search/anime", async (req, res) => {
   const hit = cached(key);
   if (hit) return res.json({ items: hit });
   try {
-    const r = await fetchWithRetry(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(q)}&limit=20`);
-    const data = await r.json();
-    const items = (data.data || []).map((a) => ({
-      id: `mal-${a.mal_id}`,
-      source: "mal",
-      external_id: String(a.mal_id),
-      title: a.title_english || a.title,
-      image_url: a.images?.jpg?.image_url || a.images?.jpg?.large_image_url,
-      subtitle: [a.type, a.year].filter(Boolean).join(" · "),
-    })).filter((i) => i.image_url);
+    const items = await searchAniListMedia("ANIME", q);
     remember(key, items);
     res.json({ items });
   } catch (err) {
-    res.status(502).json(jikanErrorPayload(err));
+    res.status(502).json(searchErrorPayload(err));
   }
 });
 
-// ---- characters via Jikan too (tier lists are usually characters, let's be real)
+mediaRouter.get("/search/manga", async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (!q) return res.json({ items: [] });
+  const key = `manga:${q.toLowerCase()}`;
+  const hit = cached(key);
+  if (hit) return res.json({ items: hit });
+  try {
+    const items = await searchAniListMedia("MANGA", q);
+    remember(key, items);
+    res.json({ items });
+  } catch (err) {
+    res.status(502).json(searchErrorPayload(err));
+  }
+});
+
 mediaRouter.get("/search/characters", async (req, res) => {
   const q = String(req.query.q || "").trim();
   if (!q) return res.json({ items: [] });
@@ -132,20 +200,11 @@ mediaRouter.get("/search/characters", async (req, res) => {
   const hit = cached(key);
   if (hit) return res.json({ items: hit });
   try {
-    const r = await fetchWithRetry(`https://api.jikan.moe/v4/characters?q=${encodeURIComponent(q)}&limit=20`);
-    const data = await r.json();
-    const items = (data.data || []).map((c) => ({
-      id: `malchar-${c.mal_id}`,
-      source: "mal",
-      external_id: String(c.mal_id),
-      title: c.name,
-      image_url: c.images?.jpg?.image_url,
-      subtitle: c.favorites ? `♥ ${c.favorites.toLocaleString()}` : "",
-    })).filter((i) => i.image_url && !i.image_url.includes("questionmark"));
+    const items = await searchAniListCharacters(q);
     remember(key, items);
     res.json({ items });
   } catch (err) {
-    res.status(502).json(jikanErrorPayload(err));
+    res.status(502).json(searchErrorPayload(err));
   }
 });
 

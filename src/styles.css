@@ -1029,6 +1029,10 @@ a { color: inherit; }
   box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.7);
 }
 .align-tooltip strong { color: var(--acid); }
+/* flip/align near the square's edges so overflow:hidden never clips it */
+.align-tooltip--below { bottom: auto; top: calc(100% + 8px); }
+.align-tooltip--left { left: 4px; transform: none; }
+.align-tooltip--right { left: auto; right: 4px; transform: none; }
 
 .align-shelf {
   margin-top: 22px;

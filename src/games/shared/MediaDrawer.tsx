@@ -4,10 +4,11 @@ import { api, ApiError } from "../../lib/api";
 import { useToast } from "../../components/Toasts";
 import { useUser } from "../../App";
 
-type Tab = "anime" | "characters" | "games" | "upload" | "link";
+type Tab = "anime" | "manga" | "characters" | "games" | "upload" | "link";
 
 const SEARCH_TABS: { key: Tab; label: string; endpoint: string; hint: string }[] = [
-  { key: "anime", label: "🎌 anime", endpoint: "/api/search/anime", hint: "search MyAnimeList (via Jikan)" },
+  { key: "anime", label: "🎌 anime", endpoint: "/api/search/anime", hint: "search anime (via AniList)" },
+  { key: "manga", label: "📖 manga", endpoint: "/api/search/manga", hint: "search manga (via AniList)" },
   { key: "characters", label: "👤 characters", endpoint: "/api/search/characters", hint: "search anime/manga characters" },
   { key: "games", label: "🎮 games", endpoint: "/api/search/games", hint: "search game covers (RAWG)" },
 ];
