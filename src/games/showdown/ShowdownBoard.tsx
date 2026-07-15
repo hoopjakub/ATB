@@ -21,9 +21,80 @@ function youtubeEmbed(url: string): string | null {
   }
 }
 
-function EntryMedia({ entry }: { entry: ShowdownEntry }) {
+const MAX_MEDIA_RETRIES = 3;
+const RETRY_DELAYS_MS = [800, 2000, 4000];
+const AUDIO_ONLY_KEY = "atb:showdownAudioOnly";
+
+// AnimeThemes' CDN occasionally 503s a request — a plain <video>/<audio> that
+// hits this on its very first byte just sits broken forever (browsers don't
+// retry a failed media fetch on their own), while one that happened to
+// succeed keeps playing fine regardless of any later blips. Force a fresh
+// attempt (remount via `key`) a few times before giving up and offering a
+// manual retry. Same fix covers both hosts (v.animethemes.moe video files and
+// a.animethemes.moe audio-only rips) since it's the same underlying issue.
+function RetryMedia({ src, kind }: { src: string; kind: "video" | "audio" }) {
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+  const retryTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => () => clearTimeout(retryTimer.current), []);
+  useEffect(() => {
+    setAttempt(0);
+    setFailed(false);
+  }, [src]);
+
+  const handleError = () => {
+    if (attempt < MAX_MEDIA_RETRIES) {
+      retryTimer.current = setTimeout(() => setAttempt((a) => a + 1), RETRY_DELAYS_MS[attempt] ?? 4000);
+    } else {
+      setFailed(true);
+    }
+  };
+
+  if (failed) {
+    return (
+      <div className="showdown-nofile">
+        <div className="showdown-nofile__title">the archive host is having trouble right now</div>
+        <button
+          className="btn btn--sm"
+          style={{ marginTop: 8 }}
+          onClick={() => {
+            setFailed(false);
+            setAttempt(0);
+          }}
+        >
+          retry
+        </button>
+      </div>
+    );
+  }
+
+  if (kind === "audio") {
+    return (
+      <div className="showdown-audioplayer">
+        <div className="showdown-audioplayer__icon">🎧</div>
+        <audio key={attempt} src={src} controls preload="metadata" className="showdown-audio" onError={handleError} />
+      </div>
+    );
+  }
+
+  return (
+    <video
+      key={attempt}
+      src={src}
+      controls
+      playsInline
+      preload="metadata"
+      className="showdown-video"
+      onError={handleError}
+    />
+  );
+}
+
+function EntryMedia({ entry, audioOnly }: { entry: ShowdownEntry; audioOnly: boolean }) {
   if (entry.kind === "file" && entry.videoUrl) {
-    return <video src={entry.videoUrl} controls playsInline preload="metadata" className="showdown-video" />;
+    if (audioOnly && entry.audioUrl) return <RetryMedia src={entry.audioUrl} kind="audio" />;
+    return <RetryMedia src={entry.videoUrl} kind="video" />;
   }
   if (entry.kind === "youtube" && entry.videoUrl) {
     const embed = youtubeEmbed(entry.videoUrl);
@@ -66,6 +137,11 @@ export default function ShowdownBoard({ roomId }: { roomId: string }) {
   const isOwner = room?.owner_id === user.id;
   const boardRef = useRef<HTMLDivElement>(null);
   const lastTieMessage = useRef<string | null>(null);
+  const [audioOnly, setAudioOnly] = useState(() => localStorage.getItem(AUDIO_ONLY_KEY) === "1");
+
+  useEffect(() => {
+    localStorage.setItem(AUDIO_ONLY_KEY, audioOnly ? "1" : "0");
+  }, [audioOnly]);
 
   useEffect(() => {
     if (state?.tieMessage && state.tieMessage !== lastTieMessage.current) {
@@ -153,7 +229,15 @@ export default function ShowdownBoard({ roomId }: { roomId: string }) {
             <SeedingView state={state} isOwner={isOwner} roomId={roomId} sendOp={sendOp} />
           )}
           {state.status === "in_progress" && (
-            <MatchView state={state} presence={presence} userId={user.id} isOwner={isOwner} sendOp={sendOp} />
+            <MatchView
+              state={state}
+              presence={presence}
+              userId={user.id}
+              isOwner={isOwner}
+              sendOp={sendOp}
+              audioOnly={audioOnly}
+              setAudioOnly={setAudioOnly}
+            />
           )}
           {state.status === "complete" && (
             <ResultsView state={state} isOwner={isOwner} sendOp={sendOp} />
@@ -305,12 +389,16 @@ function MatchView({
   userId,
   isOwner,
   sendOp,
+  audioOnly,
+  setAudioOnly,
 }: {
   state: ShowdownState;
   presence: { id: string; nick: string }[];
   userId: string;
   isOwner: boolean;
   sendOp: (op: ShowdownOp, optimistic?: (s: ShowdownState) => ShowdownState) => void;
+  audioOnly: boolean;
+  setAudioOnly: (v: boolean) => void;
 }) {
   const match = currentMatch(state);
   const pairs = roundPairs(state, state.round);
@@ -351,16 +439,31 @@ function MatchView({
         )}
       </div>
 
+      {(left?.audioUrl || right?.audioUrl) && (
+        <div className="showdown-mediatoggle">
+          <div className="seg">
+            <button type="button" className={!audioOnly ? "on" : ""} onClick={() => setAudioOnly(false)}>
+              🎬 video
+            </button>
+            <button type="button" className={audioOnly ? "on" : ""} onClick={() => setAudioOnly(true)}>
+              🎧 audio only — faster on slow wifi
+            </button>
+          </div>
+        </div>
+      )}
+
       {(left?.kind === "file" || right?.kind === "file") && (
         <p className="hint showdown-match__videohint">
-          videos stream from a third-party archive — first play can take a few seconds to buffer, that's normal, not broken.
+          {audioOnly
+            ? "audio-only mode — much smaller files, should load fast even on slow connections."
+            : "videos stream from a third-party archive — first play can take a few seconds to buffer, that's normal, not broken."}
         </p>
       )}
 
       <div className="showdown-panels">
         {[{ id: leftId, entry: left, side: "left" as const }, { id: rightId, entry: right, side: "right" as const }].map(({ id, entry, side }) => (
           <div key={id} className={`showdown-panel ${myVote === side ? "showdown-panel--chosen" : ""}`}>
-            {entry ? <EntryMedia entry={entry} /> : <div className="showdown-nofile">missing entry</div>}
+            {entry ? <EntryMedia entry={entry} audioOnly={audioOnly} /> : <div className="showdown-nofile">missing entry</div>}
             <div className="showdown-panel__title">{entry?.title}</div>
             <div className="showdown-panel__sub">{entry?.animeTitle}</div>
             <button className="btn showdown-panel__choose" disabled={!!myVote} onClick={() => vote(side)}>

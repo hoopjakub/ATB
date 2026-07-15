@@ -95,6 +95,7 @@ export interface ShowdownEntry {
   animeTitle: string;
   subtitle: string;
   videoUrl: string | null;
+  audioUrl: string | null;
   kind: "file" | "youtube" | "none";
 }
 

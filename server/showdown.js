@@ -79,6 +79,7 @@ const ops = {
         animeTitle: String(raw.animeTitle || raw.title || "").slice(0, 200),
         subtitle: String(raw.subtitle || "").slice(0, 200),
         videoUrl,
+        audioUrl: String(raw.audioUrl || "") || null,
         kind: !videoUrl ? "none" : /\.(webm|mp4|m4v)(\?|$)/i.test(videoUrl) ? "file" : "youtube",
       };
     }
@@ -98,6 +99,7 @@ const ops = {
         title: String(raw.title || "untitled").slice(0, 200),
         animeTitle: String(raw.animeTitle || raw.title || "").slice(0, 200),
         subtitle: String(raw.subtitle || "").slice(0, 200),
+        audioUrl: String(raw.audioUrl || "") || null,
         videoUrl,
         kind: !videoUrl ? "none" : /\.(webm|mp4|m4v)(\?|$)/i.test(videoUrl) ? "file" : "youtube",
       };

@@ -84,7 +84,7 @@ const animeThemesSearchCache = new Map(); // animeName (lowercased) -> candidate
 async function searchAnimeThemesCached(animeName) {
   const key = animeName.toLowerCase();
   if (animeThemesSearchCache.has(key)) return animeThemesSearchCache.get(key);
-  const url = `${ANIMETHEMES_ENDPOINT}/anime?q=${encodeURIComponent(animeName)}&include=resources,animethemes.animethemeentries.videos,animethemes.song.artists&page[size]=5`;
+  const url = `${ANIMETHEMES_ENDPOINT}/anime?q=${encodeURIComponent(animeName)}&include=resources,animethemes.animethemeentries.videos.audio,animethemes.song.artists&page[size]=5`;
   let candidates = [];
   try {
     const data = await fetchJson(url, undefined, 2);
@@ -108,9 +108,9 @@ function findThemeInCandidates(candidates, anilistId, themeType) {
   const theme = themes[0];
 
   const videos = (theme.animethemeentries || []).flatMap((e) => e.videos || []);
-  if (!videos.length) return { theme, videoUrl: null };
+  if (!videos.length) return { theme, videoUrl: null, audioUrl: null };
   videos.sort((a, b) => (b.nc ? 1 : 0) - (a.nc ? 1 : 0) || (b.resolution || 0) - (a.resolution || 0));
-  return { theme, videoUrl: videos[0].link };
+  return { theme, videoUrl: videos[0].link, audioUrl: videos[0].audio?.link || null };
 }
 
 // runs `items` through `worker` with at most `limit` in flight at once
@@ -133,15 +133,18 @@ export async function autofillEntries(size, contentType) {
   const anime = await fetchPopularAnime(size);
   const results = await mapWithConcurrency(anime, 10, async (a) => {
     const title = a.title.english || a.title.romaji;
-    // mixed mode picks a random OP/ED preference per anime for variety, falling
-    // back to the other type if that one isn't available for this particular anime
+    // mixed mode picks a random OP/ED preference per anime for variety; every
+    // mode falls back to the other type if the preferred one isn't available
+    // for this particular anime (many movies/OVAs only ever get an ED
+    // cataloged, for instance) — real footage of the wrong type beats an empty
+    // "no video found" placeholder when the anime clearly has *something*.
     const preferred = mixed ? (Math.random() < 0.5 ? "OP" : "ED") : fixedType;
     let hit = null;
     let themeType = preferred;
     try {
       const candidates = await searchAnimeThemesCached(a.title.romaji);
       hit = findThemeInCandidates(candidates, a.id, preferred);
-      if (!hit && mixed) {
+      if (!hit) {
         themeType = preferred === "OP" ? "ED" : "OP";
         hit = findThemeInCandidates(candidates, a.id, themeType);
       }
@@ -155,6 +158,7 @@ export async function autofillEntries(size, contentType) {
         animeTitle: title,
         subtitle: (hit.theme.song?.artists || []).map((ar) => ar.name).join(", "),
         videoUrl: hit.videoUrl,
+        audioUrl: hit.audioUrl || null,
       };
     }
     return {
@@ -162,6 +166,7 @@ export async function autofillEntries(size, contentType) {
       animeTitle: title,
       subtitle: "no video found",
       videoUrl: null,
+      audioUrl: null,
     };
   });
   return results;

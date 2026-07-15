@@ -131,6 +131,7 @@ app.post("/api/rooms/:id/showdown/autofill", async (req, res) => {
           animeTitle: e.animeTitle,
           subtitle: e.subtitle,
           videoUrl: e.videoUrl,
+          audioUrl: e.audioUrl || null,
           kind: !e.videoUrl ? "none" : /\.(webm|mp4|m4v)(\?|$)/i.test(e.videoUrl) ? "file" : "youtube",
         };
       }
