@@ -100,6 +100,34 @@ export default function Lobby() {
   );
 }
 
+const SHOWDOWN_SIZES = [32, 64, 128, 256, 512] as const;
+
+const NAME_EXAMPLES: Record<string, string[]> = {
+  tierlist: [
+    "ranking every animal martin has feared",
+    "worst anime protagonists of all time",
+    "S-tier vs bottom-tier video game villains",
+    "most unhinged discord emotes we own",
+  ],
+  alignment: [
+    "lawful/chaotic vs good/evil anime characters",
+    "boring↔unhinged, safe↔cursed",
+    "mainstream vs niche, wholesome vs feral",
+    "how problematic is this take, exactly",
+  ],
+  showdown: [
+    "1995-2024 best anime openings",
+    "most iconic anime endings ever",
+    "opening theme deathmatch",
+    "anime OP vs OP: fight to the death",
+  ],
+};
+
+function randomPlaceholder(game: string): string {
+  const list = NAME_EXAMPLES[game] || NAME_EXAMPLES.tierlist;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
 function CreateRoomModal({ game, displayName, onClose }: { game: string; displayName: string; onClose: () => void }) {
   const { user } = useUser();
   const toast = useToast();
@@ -108,6 +136,9 @@ function CreateRoomModal({ game, displayName, onClose }: { game: string; display
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [passcode, setPasscode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [size, setSize] = useState<number>(32);
+  const [contentType, setContentType] = useState<"openings" | "endings" | "mixed">("openings");
+  const [placeholder] = useState(() => `e.g. ${randomPlaceholder(game)}`);
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
@@ -121,6 +152,7 @@ function CreateRoomModal({ game, displayName, onClose }: { game: string; display
           visibility,
           passcode: visibility === "private" && passcode ? passcode : undefined,
           user,
+          gameOptions: game === "showdown" ? { size, contentType } : undefined,
         }),
       });
       saveRoomToken(res.id, res.token);
@@ -143,7 +175,7 @@ function CreateRoomModal({ game, displayName, onClose }: { game: string; display
               className="input"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. ranking every animal martin has feared"
+              placeholder={placeholder}
               maxLength={60}
               autoFocus
             />
@@ -170,6 +202,34 @@ function CreateRoomModal({ game, displayName, onClose }: { game: string; display
                 maxLength={40}
               />
             </div>
+          )}
+          {game === "showdown" && (
+            <>
+              <div className="modal__row">
+                <label className="label">bracket size</label>
+                <div className="seg">
+                  {SHOWDOWN_SIZES.map((s) => (
+                    <button key={s} type="button" className={size === s ? "on" : ""} onClick={() => setSize(s)}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="modal__row">
+                <label className="label">content</label>
+                <div className="seg">
+                  <button type="button" className={contentType === "openings" ? "on" : ""} onClick={() => setContentType("openings")}>
+                    openings
+                  </button>
+                  <button type="button" className={contentType === "endings" ? "on" : ""} onClick={() => setContentType("endings")}>
+                    endings
+                  </button>
+                  <button type="button" className={contentType === "mixed" ? "on" : ""} onClick={() => setContentType("mixed")}>
+                    main themes
+                  </button>
+                </div>
+              </div>
+            </>
           )}
           <div className="modal__actions">
             <button type="button" className="btn btn--ghost" onClick={onClose}>nah</button>

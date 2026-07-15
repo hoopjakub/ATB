@@ -85,3 +85,46 @@ export type AlignmentOp =
   | { type: "addMedia"; items: Partial<MediaItem>[] }
   | { type: "removeItem"; itemId: string }
   | { type: "setLabel"; axis: Axis; text: string };
+
+export type ShowdownSize = 32 | 64 | 128 | 256 | 512;
+export type ShowdownContentType = "openings" | "endings" | "mixed";
+
+export interface ShowdownEntry {
+  id: string;
+  title: string;
+  animeTitle: string;
+  subtitle: string;
+  videoUrl: string | null;
+  kind: "file" | "youtube" | "none";
+}
+
+export interface ShowdownHistoryEntry {
+  round: number;
+  matchIndex: number;
+  pair: [string, string];
+  winner: string;
+  votes: Record<string, "left" | "right">;
+}
+
+export interface ShowdownState {
+  size: ShowdownSize;
+  contentType: ShowdownContentType;
+  entries: Record<string, ShowdownEntry>;
+  bracket: [string, string][];
+  round: number;
+  matchIndex: number;
+  votes: Record<string, "left" | "right">;
+  history: ShowdownHistoryEntry[];
+  status: "seeding" | "in_progress" | "complete";
+  tieMessage: string | null;
+}
+
+export type ShowdownOp =
+  | { type: "addEntries"; entries: Partial<ShowdownEntry>[] }
+  | { type: "removeEntry"; entryId: string }
+  | { type: "startTournament" }
+  | { type: "mixUp" }
+  | { type: "vote"; side: "left" | "right" }
+  | { type: "stepBack" }
+  | { type: "reset" }
+  | { type: "backToSeeding" };

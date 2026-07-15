@@ -143,23 +143,30 @@ const upload = multer({
 export const mediaRouter = express.Router();
 
 // ---- uploads -----------------------------------------------------------------
-mediaRouter.post("/upload", upload.array("files", 10), (req, res) => {
+mediaRouter.post("/upload", upload.array("files", 10), async (req, res) => {
   const uploadedBy = String(req.body.userId || "").slice(0, 64) || null;
-  const items = (req.files || []).map((f) => {
-    const item = {
-      id: crypto.randomUUID(),
-      source: "upload",
-      external_id: null,
-      title: path.parse(f.originalname).name.slice(0, 120) || "upload",
-      image_url: `/uploads/${f.filename}`,
-      uploaded_by: uploadedBy,
-      created_at: Date.now(),
-    };
-    queries.insertMedia.run(item);
-    return item;
-  });
-  if (!items.length) return res.status(400).json({ error: "no valid image files (jpg/png/gif/webp/avif, max 8MB)" });
-  res.json({ items });
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: "no valid image files (jpg/png/gif/webp/avif, max 8MB)" });
+  try {
+    const items = await Promise.all(
+      files.map(async (f) => {
+        const item = {
+          id: crypto.randomUUID(),
+          source: "upload",
+          external_id: null,
+          title: path.parse(f.originalname).name.slice(0, 120) || "upload",
+          image_url: `/uploads/${f.filename}`,
+          uploaded_by: uploadedBy,
+          created_at: Date.now(),
+        };
+        await queries.insertMedia(item);
+        return item;
+      })
+    );
+    res.json({ items });
+  } catch (err) {
+    res.status(502).json({ error: `upload failed: ${err.message}` });
+  }
 });
 
 // ---- anime / manga / characters via AniList (free, no key) --------------------

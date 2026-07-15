@@ -6,10 +6,12 @@ import { useUser } from "../App";
 import { useToast } from "../components/Toasts";
 import TierBoard from "../games/tierlist/TierBoard";
 import AlignmentBoard from "../games/alignment/AlignmentBoard";
+import ShowdownBoard from "../games/showdown/ShowdownBoard";
 
 const BOARDS: Record<string, ComponentType<{ roomId: string }>> = {
   tierlist: TierBoard,
   alignment: AlignmentBoard,
+  showdown: ShowdownBoard,
 };
 
 export default function Room() {

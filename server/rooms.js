@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
-import { db, queries } from "./db.js";
+import { queries } from "./db.js";
 import * as tierlist from "./tierlist.js";
 import * as alignment from "./alignment.js";
+import * as showdown from "./showdown.js";
 
 export const GAMES = {
   tierlist: {
@@ -17,6 +18,13 @@ export const GAMES = {
     tagline: "Plot everyone's takes on two axes and argue about the results.",
     icon: "🧭",
     module: alignment,
+  },
+  showdown: {
+    slug: "showdown",
+    display_name: "Anime Showdown",
+    tagline: "Bracket-vote your way through anime openings until only one remains.",
+    icon: "⚔️",
+    module: showdown,
   },
 };
 
@@ -57,14 +65,14 @@ function roomCode() {
 }
 
 // ---- live room state ---------------------------------------------------------
-// In-memory authoritative copy per active room; SQLite is the durable layer.
+// In-memory authoritative copy per active room; Supabase is the durable layer.
 const live = new Map(); // roomId -> { meta, state, rev, presence: Map<socketId, user>, saveTimer }
 
-function loadRoom(roomId) {
+async function loadRoom(roomId) {
   if (live.has(roomId)) return live.get(roomId);
-  const row = queries.getRoom.get(roomId);
+  const row = await queries.getRoom(roomId);
   if (!row) return null;
-  const state = JSON.parse(row.state);
+  const state = row.state;
   GAMES[row.game]?.module.sanitize?.(state);
   const entry = {
     meta: {
@@ -86,20 +94,26 @@ function loadRoom(roomId) {
   return entry;
 }
 
+function persistNow(entry) {
+  queries.saveState(entry.state, Date.now(), entry.meta.id).catch((err) => {
+    console.error(`[persist] failed to save room ${entry.meta.id}:`, err.message);
+  });
+}
+
 function schedulePersist(entry) {
   if (entry.saveTimer) return;
   entry.saveTimer = setTimeout(() => {
     entry.saveTimer = null;
-    queries.saveState.run(JSON.stringify(entry.state), Date.now(), entry.meta.id);
+    persistNow(entry);
   }, 800);
 }
 
-export function createRoom({ game, name, visibility, passcode, user }) {
+export async function createRoom({ game, name, visibility, passcode, user, gameOptions }) {
   if (!GAMES[game]) throw new Error("unknown game");
   let id = roomCode();
-  while (queries.getRoom.get(id)) id = roomCode();
+  while (await queries.getRoom(id)) id = roomCode();
   const now = Date.now();
-  queries.insertRoom.run({
+  await queries.insertRoom({
     id,
     game,
     name: String(name || "untitled chaos").slice(0, 60),
@@ -107,31 +121,32 @@ export function createRoom({ game, name, visibility, passcode, user }) {
     owner_nick: String(user.nick || "").slice(0, 24),
     visibility: visibility === "private" ? "private" : "public",
     passcode_hash: passcode ? hashPasscode(String(passcode)) : null,
-    state: JSON.stringify(GAMES[game].module.initialState()),
+    state: GAMES[game].module.initialState(gameOptions),
     created_at: now,
     updated_at: now,
   });
   return { id, token: makeJoinToken(id) };
 }
 
-export function getRoomMeta(roomId) {
-  const entry = loadRoom(roomId);
+export async function getRoomMeta(roomId) {
+  const entry = await loadRoom(roomId);
   return entry ? entry.meta : null;
 }
 
-export function getRoomRow(roomId) {
-  return queries.getRoom.get(roomId);
+export async function getRoomRow(roomId) {
+  return queries.getRoom(roomId);
 }
 
-export function deleteRoom(roomId) {
-  queries.deleteRoom.run(roomId);
+export async function deleteRoom(roomId) {
+  await queries.deleteRoom(roomId);
   const entry = live.get(roomId);
   if (entry?.saveTimer) clearTimeout(entry.saveTimer);
   live.delete(roomId);
 }
 
-export function listPublicRooms(game) {
-  return queries.listPublic.all(game).map((r) => ({
+export async function listPublicRooms(game) {
+  const rows = await queries.listPublic(game);
+  return rows.map((r) => ({
     ...r,
     online: live.get(r.id)?.presence.size ?? 0,
   }));
@@ -141,13 +156,37 @@ export function occupancy(roomId) {
   return live.get(roomId)?.presence.size ?? 0;
 }
 
+let ioRef = null;
+
+// For REST routes that need to mutate room state outside the socket 'op' flow
+// (autofill does slow, async, network-bound work — a poor fit for the
+// synchronous op-apply-broadcast cycle used everywhere else).
+export async function applyGameUpdate(roomId, mutate) {
+  const entry = await loadRoom(roomId);
+  if (!entry) throw new Error("room not found");
+  const draft = structuredClone(entry.state);
+  await mutate(draft);
+  entry.state = draft;
+  entry.rev++;
+  schedulePersist(entry);
+  ioRef?.to(roomId).emit("room:state", { state: entry.state, rev: entry.rev, actor: null, opType: null });
+  return entry.state;
+}
+
 // ---- socket wiring -----------------------------------------------------------
 export function attachSockets(io) {
-  io.on("connection", (socket) => {
+  ioRef = io;
+  io.on("connection", async (socket) => {
     const { roomId, user, token } = socket.handshake.auth || {};
     if (!roomId || !user?.id || !user?.nick) return socket.disconnect(true);
 
-    const entry = loadRoom(roomId);
+    let entry;
+    try {
+      entry = await loadRoom(roomId);
+    } catch (err) {
+      socket.emit("room:error", { code: "not_found", message: "Couldn't load this room right now — try again." });
+      return socket.disconnect(true);
+    }
     if (!entry) {
       socket.emit("room:error", { code: "not_found", message: "This room doesn't exist (anymore)." });
       return socket.disconnect(true);
@@ -186,7 +225,11 @@ export function attachSockets(io) {
 
     socket.on("op", (op, ack) => {
       try {
-        const ctx = { userId: cleanUser.id, isOwner: cleanUser.id === entry.meta.owner_id };
+        const ctx = {
+          userId: cleanUser.id,
+          isOwner: cleanUser.id === entry.meta.owner_id,
+          presenceIds: presenceList().map((u) => u.id),
+        };
         const draft = structuredClone(entry.state);
         GAMES[entry.meta.game].module.applyOp(draft, op, ctx);
         entry.state = draft;
@@ -201,10 +244,14 @@ export function attachSockets(io) {
       }
     });
 
-    socket.on("room:rename", (name) => {
+    socket.on("room:rename", async (name) => {
       if (cleanUser.id !== entry.meta.owner_id) return;
       entry.meta.name = String(name || "").slice(0, 60) || entry.meta.name;
-      queries.renameRoom.run(entry.meta.name, Date.now(), roomId);
+      try {
+        await queries.renameRoom(entry.meta.name, Date.now(), roomId);
+      } catch (err) {
+        console.error(`[rename] failed for room ${roomId}:`, err.message);
+      }
       io.to(roomId).emit("room:meta", entry.meta);
     });
 
@@ -239,8 +286,8 @@ export function attachSockets(io) {
         if (entry.saveTimer) {
           clearTimeout(entry.saveTimer);
           entry.saveTimer = null;
-          queries.saveState.run(JSON.stringify(entry.state), Date.now(), roomId);
         }
+        persistNow(entry);
         live.delete(roomId);
       }
     });
