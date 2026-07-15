@@ -3,6 +3,13 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import express from "express";
+
+// load .env for local dev; on Render/Railway/etc. env vars are injected directly
+// and no .env file exists, so don't hard-fail when it's missing.
+const __dirnameEnv = path.dirname(fileURLToPath(import.meta.url));
+const envPath = path.join(__dirnameEnv, "..", ".env");
+if (fs.existsSync(envPath)) process.loadEnvFile(envPath);
+
 import { Server } from "socket.io";
 import { UPLOADS_DIR } from "./db.js";
 import { mediaRouter } from "./media.js";

@@ -5,9 +5,9 @@
   "type": "module",
   "description": "Hosted mini-games platform for friends. Game #1: tier list maker.",
   "scripts": {
-    "dev": "concurrently -n server,web -c yellow,magenta \"node --env-file=.env server/index.js\" \"vite\"",
+    "dev": "concurrently -n server,web -c yellow,magenta \"node server/index.js\" \"vite\"",
     "build": "vite build",
-    "start": "node --env-file=.env server/index.js",
+    "start": "node server/index.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
