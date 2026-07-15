@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "atb",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "cwd": "D:\\ATB",
+      "port": 3000
+    }
+  ]
+}

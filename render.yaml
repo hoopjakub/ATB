@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: all-the-bullshit
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: RAWG_API_KEY
+        sync: false
