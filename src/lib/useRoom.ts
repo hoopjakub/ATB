@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
-import type { RoomMeta, User } from "../types";
+import type { ChatMessage, RoomMeta, User } from "../types";
 import { getRoomToken } from "./api";
 
 export interface RemoteDrag {
@@ -33,6 +33,7 @@ export function useRoom<State, OpType>(roomId: string, user: User | null) {
   // ephemeral layers live outside React state churn where possible
   const [cursors, setCursors] = useState<Record<string, RemoteCursor>>({});
   const [remoteDrags, setRemoteDrags] = useState<Record<string, RemoteDrag>>({});
+  const [chat, setChat] = useState<ChatMessage[]>([]);
   const lastToast = useRef<(msg: string) => void>(() => {});
 
   useEffect(() => {
@@ -50,7 +51,11 @@ export function useRoom<State, OpType>(roomId: string, user: User | null) {
       setRoom(payload.room);
       setState(payload.state);
       setPresence(payload.presence);
+      setChat(payload.chat || []);
       setError(null);
+    });
+    socket.on("chat:message", (msg: ChatMessage) => {
+      setChat((prev) => [...prev.slice(-99), msg]);
     });
     socket.on("room:state", ({ state }) => setState(state));
     socket.on("room:meta", (meta) => setRoom(meta));
@@ -109,6 +114,21 @@ export function useRoom<State, OpType>(roomId: string, user: User | null) {
     };
   }, [roomId, user?.id]);
 
+  // Push nick/color changes to an already-connected socket immediately, rather
+  // than waiting for the next reconnect to pick up the new handshake auth —
+  // otherwise everyone else in the room keeps seeing your old identity until
+  // you reload.
+  useEffect(() => {
+    if (!user) return;
+    socketRef.current?.emit("user:update", { nick: user.nick, color: user.color });
+  }, [user?.nick, user?.color]);
+
+  const sendChat = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    socketRef.current?.emit("chat:send", trimmed);
+  }, []);
+
   const sendOp = useCallback((op: OpType, optimistic?: (s: State) => State) => {
     if (optimistic) setState((s) => (s ? optimistic(structuredClone(s)) : s));
     socketRef.current?.emit("op", op, (res: { ok: boolean; error?: string }) => {
@@ -126,8 +146,8 @@ export function useRoom<State, OpType>(roomId: string, user: User | null) {
 
   return {
     room, state, presence, error, connected,
-    cursors, remoteDrags,
-    sendOp, emit, emitVolatile,
+    cursors, remoteDrags, chat,
+    sendOp, emit, emitVolatile, sendChat,
     onOpError: (fn: (msg: string) => void) => { lastToast.current = fn; },
   };
 }

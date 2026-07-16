@@ -7,6 +7,8 @@ import { useToast } from "../../components/Toasts";
 import { api } from "../../lib/api";
 import CursorLayer from "../shared/CursorLayer";
 import MediaDrawer from "../shared/MediaDrawer";
+import ChatPanel from "../shared/ChatPanel";
+import { downloadElementAsImage } from "../../lib/downloadImage";
 
 const TIER_COLORS = ["#ff5c5c", "#ffa45c", "#ffd75c", "#b8e05c", "#5cc8ff", "#c68bff", "#ff8bd1", "#9b9b9b", "#c6ff3d", "#3dc8ff"];
 
@@ -30,7 +32,7 @@ export default function TierBoard({ roomId }: { roomId: string }) {
   const navigate = useNavigate();
   const {
     room, state, presence, error, connected,
-    cursors, remoteDrags, sendOp, emit, emitVolatile, onOpError,
+    cursors, remoteDrags, chat, sendOp, emit, emitVolatile, sendChat, onOpError,
   } = useRoom<TierListState, TierlistOp>(roomId, user);
 
   useEffect(() => onOpError(toast), [onOpError, toast]);
@@ -42,6 +44,7 @@ export default function TierBoard({ roomId }: { roomId: string }) {
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const [editingTier, setEditingTier] = useState<Tier | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   // itemId -> user currently holding it remotely (soft lock)
   const heldBy = useMemo(() => {
@@ -226,6 +229,18 @@ export default function TierBoard({ roomId }: { roomId: string }) {
     }
   };
 
+  const downloadImage = async () => {
+    if (!boardRef.current || downloading) return;
+    setDownloading(true);
+    try {
+      await downloadElementAsImage(boardRef.current, room.name);
+    } catch (err: any) {
+      toast(`couldn't generate the image: ${err.message}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const totalItems = Object.keys(state.media).length;
 
   return (
@@ -246,6 +261,9 @@ export default function TierBoard({ roomId }: { roomId: string }) {
         </button>
         <button className="btn btn--ghost btn--sm" onClick={copyInvite} title="copy a clickable invite link">
           copy link
+        </button>
+        <button className="btn btn--ghost btn--sm" onClick={downloadImage} disabled={downloading} title="download this board as an image">
+          {downloading ? "…" : "⬇ save image"}
         </button>
         <span className={`connbadge ${connected ? "on" : ""}`}>{connected ? "live" : "offline"}</span>
         <div className="facepile" title={presence.map((p) => p.nick).join(", ")}>
@@ -322,6 +340,8 @@ export default function TierBoard({ roomId }: { roomId: string }) {
           }}
         />
       )}
+
+      <ChatPanel messages={chat} onSend={sendChat} currentUserId={user.id} />
     </main>
   );
 }

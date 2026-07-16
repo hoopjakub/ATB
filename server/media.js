@@ -142,6 +142,48 @@ const upload = multer({
 
 export const mediaRouter = express.Router();
 
+// ---- same-origin image proxy ---------------------------------------------------
+// Used only when exporting a board to PNG (src/lib/downloadImage.ts): third-party
+// image CDNs we embed (AniList, RAWG, anyone's pasted URL) mostly don't send
+// CORS headers, so drawing them into a canvas taints it and toDataURL() throws.
+// Re-serving the bytes from our own origin sidesteps that entirely — no CORS
+// negotiation needed since it's no longer cross-origin from the page's view.
+const MAX_PROXY_IMAGE_BYTES = 15 * 1024 * 1024;
+
+mediaRouter.get("/img", async (req, res) => {
+  const url = String(req.query.u || "");
+  let parsed;
+  try {
+    parsed = new URL(url);
+    if (!/^https?:$/.test(parsed.protocol)) throw new Error("bad protocol");
+  } catch {
+    return res.status(400).json({ error: "bad url" });
+  }
+  try {
+    const upstream = await fetch(parsed, { signal: AbortSignal.timeout(10000) });
+    if (!upstream.ok || !upstream.body) return res.status(502).json({ error: `upstream ${upstream.status}` });
+    const contentType = upstream.headers.get("content-type") || "";
+    if (!contentType.startsWith("image/")) return res.status(415).json({ error: "not an image" });
+    const contentLength = Number(upstream.headers.get("content-length") || 0);
+    if (contentLength > MAX_PROXY_IMAGE_BYTES) return res.status(413).json({ error: "image too large" });
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    const reader = upstream.body.getReader();
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_PROXY_IMAGE_BYTES) return res.destroy();
+      res.write(value);
+    }
+    res.end();
+  } catch (err) {
+    res.status(502).json({ error: `proxy failed: ${err.message}` });
+  }
+});
+
 // ---- uploads -----------------------------------------------------------------
 mediaRouter.post("/upload", upload.array("files", 10), async (req, res) => {
   const uploadedBy = String(req.body.userId || "").slice(0, 64) || null;

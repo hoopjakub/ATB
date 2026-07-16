@@ -7,6 +7,8 @@ import { useToast } from "../../components/Toasts";
 import { api } from "../../lib/api";
 import CursorLayer from "../shared/CursorLayer";
 import MediaDrawer from "../shared/MediaDrawer";
+import ChatPanel from "../shared/ChatPanel";
+import { downloadElementAsImage } from "../../lib/downloadImage";
 
 interface DragState {
   itemId: string;
@@ -41,7 +43,7 @@ export default function AlignmentBoard({ roomId }: { roomId: string }) {
   const navigate = useNavigate();
   const {
     room, state, presence, error, connected,
-    cursors, remoteDrags, sendOp, emit, emitVolatile, onOpError,
+    cursors, remoteDrags, chat, sendOp, emit, emitVolatile, sendChat, onOpError,
   } = useRoom<AlignmentState, AlignmentOp>(roomId, user);
 
   useEffect(() => onOpError(toast), [onOpError, toast]);
@@ -52,6 +54,7 @@ export default function AlignmentBoard({ roomId }: { roomId: string }) {
   const ghostRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const heldBy = useMemo(() => {
@@ -195,6 +198,18 @@ export default function AlignmentBoard({ roomId }: { roomId: string }) {
     }
   };
 
+  const downloadImage = async () => {
+    if (!boardRef.current || downloading) return;
+    setDownloading(true);
+    try {
+      await downloadElementAsImage(boardRef.current, room.name);
+    } catch (err: any) {
+      toast(`couldn't generate the image: ${err.message}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const quadCounts = QUADRANTS.map((q) => {
     const ids = placedIds.filter((id) => {
       const p = state.positions[id];
@@ -221,6 +236,9 @@ export default function AlignmentBoard({ roomId }: { roomId: string }) {
         </button>
         <button className="btn btn--ghost btn--sm" onClick={() => copy(`${location.origin}/room/${roomId}`, "invite link")} title="copy a clickable invite link">
           copy link
+        </button>
+        <button className="btn btn--ghost btn--sm" onClick={downloadImage} disabled={downloading} title="download this chart as an image">
+          {downloading ? "…" : "⬇ save image"}
         </button>
         <span className={`connbadge ${connected ? "on" : ""}`}>{connected ? "live" : "offline"}</span>
         <div className="facepile" title={presence.map((p) => p.nick).join(", ")}>
@@ -376,6 +394,8 @@ export default function AlignmentBoard({ roomId }: { roomId: string }) {
           <img src={draggedItem.image_url} alt="" />
         </div>
       )}
+
+      <ChatPanel messages={chat} onSend={sendChat} currentUserId={user.id} />
     </main>
   );
 }

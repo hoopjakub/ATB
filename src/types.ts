@@ -4,6 +4,13 @@ export interface User {
   color: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  user: User;
+  text: string;
+  at: number;
+}
+
 export interface GameInfo {
   slug: string;
   display_name: string;

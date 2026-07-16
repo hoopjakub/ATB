@@ -29,7 +29,7 @@ export default function Home() {
       </section>
 
       <div className="marquee">
-        <span className="marquee__inner">{MARQUEE + MARQUEE}</span>
+        <span className="marquee__inner">{MARQUEE.repeat(4)}</span>
       </div>
 
       <section className="gamegrid">

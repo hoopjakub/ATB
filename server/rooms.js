@@ -88,6 +88,7 @@ async function loadRoom(roomId) {
     rev: 0,
     presence: new Map(),
     drags: new Map(), // userId -> itemId currently held (soft lock)
+    chat: [], // ephemeral, never persisted — last 100 messages, cleared when the room empties out
     saveTimer: null,
   };
   live.set(roomId, entry);
@@ -198,7 +199,7 @@ export function attachSockets(io) {
       return socket.disconnect(true);
     }
 
-    const cleanUser = {
+    let cleanUser = {
       id: String(user.id).slice(0, 64),
       nick: String(user.nick).slice(0, 24),
       color: /^#[0-9a-fA-F]{6}$/.test(user.color || "") ? user.color : "#c6ff3d",
@@ -219,6 +220,7 @@ export function attachSockets(io) {
       state: entry.state,
       rev: entry.rev,
       presence: presenceList(),
+      chat: entry.chat,
       you: cleanUser,
     });
     io.to(roomId).emit("room:presence", presenceList());
@@ -242,6 +244,26 @@ export function attachSockets(io) {
         // resync the sender in case their optimistic apply diverged
         socket.emit("room:state", { state: entry.state, rev: entry.rev, actor: null, opType: null });
       }
+    });
+
+    socket.on("user:update", ({ nick, color } = {}) => {
+      if (typeof nick === "string" && nick.trim()) cleanUser.nick = nick.trim().slice(0, 24);
+      if (/^#[0-9a-fA-F]{6}$/.test(color || "")) cleanUser.color = color;
+      entry.presence.set(socket.id, cleanUser);
+      io.to(roomId).emit("room:presence", presenceList());
+    });
+
+    let lastChatAt = 0;
+    socket.on("chat:send", (text) => {
+      const now = Date.now();
+      if (now - lastChatAt < 300) return; // basic flood guard
+      lastChatAt = now;
+      const trimmed = String(text || "").trim().slice(0, 500);
+      if (!trimmed) return;
+      const msg = { id: crypto.randomUUID(), user: cleanUser, text: trimmed, at: now };
+      entry.chat.push(msg);
+      if (entry.chat.length > 100) entry.chat.splice(0, entry.chat.length - 100);
+      io.to(roomId).emit("chat:message", msg);
     });
 
     socket.on("room:rename", async (name) => {

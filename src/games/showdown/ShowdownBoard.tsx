@@ -6,6 +6,8 @@ import { useUser } from "../../App";
 import { useToast } from "../../components/Toasts";
 import { api, ApiError } from "../../lib/api";
 import CursorLayer from "../shared/CursorLayer";
+import ChatPanel from "../shared/ChatPanel";
+import { downloadElementAsImage } from "../../lib/downloadImage";
 import { contentTypeLabel, currentMatch, derivePlacements, roundName, roundPairs } from "./derive";
 
 function youtubeEmbed(url: string): string | null {
@@ -129,15 +131,17 @@ export default function ShowdownBoard({ roomId }: { roomId: string }) {
   const navigate = useNavigate();
   const {
     room, state, presence, error, connected,
-    cursors, remoteDrags, sendOp, emit, emitVolatile, onOpError,
+    cursors, remoteDrags, chat, sendOp, emit, emitVolatile, sendChat, onOpError,
   } = useRoom<ShowdownState, ShowdownOp>(roomId, user);
 
   useEffect(() => onOpError(toast), [onOpError, toast]);
 
   const isOwner = room?.owner_id === user.id;
   const boardRef = useRef<HTMLDivElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
   const lastTieMessage = useRef<string | null>(null);
   const [audioOnly, setAudioOnly] = useState(() => localStorage.getItem(AUDIO_ONLY_KEY) === "1");
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(AUDIO_ONLY_KEY, audioOnly ? "1" : "0");
@@ -190,6 +194,18 @@ export default function ShowdownBoard({ roomId }: { roomId: string }) {
     }
   };
 
+  const downloadResults = async () => {
+    if (!resultsRef.current || downloading) return;
+    setDownloading(true);
+    try {
+      await downloadElementAsImage(resultsRef.current, `${room.name}-results`);
+    } catch (err: any) {
+      toast(`couldn't generate the image: ${err.message}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <main className="room">
       <div className="roombar">
@@ -209,6 +225,11 @@ export default function ShowdownBoard({ roomId }: { roomId: string }) {
         <button className="btn btn--ghost btn--sm" onClick={() => copy(`${location.origin}/room/${roomId}`, "invite link")} title="copy a clickable invite link">
           copy link
         </button>
+        {state.status === "complete" && (
+          <button className="btn btn--ghost btn--sm" onClick={downloadResults} disabled={downloading} title="download the results as an image">
+            {downloading ? "…" : "⬇ save results"}
+          </button>
+        )}
         <span className={`connbadge ${connected ? "on" : ""}`}>{connected ? "live" : "offline"}</span>
         <div className="facepile" title={presence.map((p) => p.nick).join(", ")}>
           {presence.slice(0, 8).map((p) => (
@@ -240,11 +261,13 @@ export default function ShowdownBoard({ roomId }: { roomId: string }) {
             />
           )}
           {state.status === "complete" && (
-            <ResultsView state={state} isOwner={isOwner} sendOp={sendOp} />
+            <ResultsView state={state} isOwner={isOwner} sendOp={sendOp} resultsRef={resultsRef} />
           )}
           <CursorLayer cursors={cursors} drags={remoteDrags} media={{}} />
         </div>
       </div>
+
+      <ChatPanel messages={chat} onSend={sendChat} currentUserId={user.id} />
     </main>
   );
 }
@@ -481,14 +504,16 @@ function ResultsView({
   state,
   isOwner,
   sendOp,
+  resultsRef,
 }: {
   state: ShowdownState;
   isOwner: boolean;
   sendOp: (op: ShowdownOp, optimistic?: (s: ShowdownState) => ShowdownState) => void;
+  resultsRef: React.RefObject<HTMLDivElement>;
 }) {
   const placements = useMemo(() => derivePlacements(state), [state]);
   return (
-    <div className="showdown-results">
+    <div className="showdown-results" ref={resultsRef}>
       <h2>and the winner is...</h2>
       {placements.map((g) => (
         <div key={g.label} className={`showdown-place ${g.label === "Champion" ? "showdown-place--champ" : ""}`}>
@@ -499,7 +524,7 @@ function ResultsView({
         </div>
       ))}
       {isOwner && (
-        <div className="showdown-match__owner" style={{ marginTop: 20 }}>
+        <div className="showdown-match__owner no-export" style={{ marginTop: 20 }}>
           <button className="btn" onClick={() => sendOp({ type: "reset" })}>run it back (same bracket)</button>
           <button className="btn btn--ghost" onClick={() => confirm("wipe entries and rebuild from scratch?") && sendOp({ type: "backToSeeding" })}>
             new entries
