@@ -225,7 +225,7 @@ function CreateRoomModal({ game, displayName, onClose }: { game: string; display
                     endings
                   </button>
                   <button type="button" className={contentType === "mixed" ? "on" : ""} onClick={() => setContentType("mixed")}>
-                    main themes
+                    openings and endings
                   </button>
                 </div>
               </div>
