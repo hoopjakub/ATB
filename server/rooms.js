@@ -3,6 +3,7 @@ import { queries } from "./db.js";
 import * as tierlist from "./tierlist.js";
 import * as alignment from "./alignment.js";
 import * as showdown from "./showdown.js";
+import * as rating from "./rating.js";
 
 export const GAMES = {
   tierlist: {
@@ -25,6 +26,13 @@ export const GAMES = {
     tagline: "Bracket-vote your way through anime openings until only one remains.",
     icon: "⚔️",
     module: showdown,
+  },
+  rating: {
+    slug: "rating",
+    display_name: "Rating",
+    tagline: "Everyone scores the anime 0–10 — see where your friend group really stands.",
+    icon: "📊",
+    module: rating,
   },
 };
 
@@ -229,6 +237,7 @@ export function attachSockets(io) {
       try {
         const ctx = {
           userId: cleanUser.id,
+          nick: cleanUser.nick,
           isOwner: cleanUser.id === entry.meta.owner_id,
           presenceIds: presenceList().map((u) => u.id),
         };

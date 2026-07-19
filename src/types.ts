@@ -136,3 +136,31 @@ export type ShowdownOp =
   | { type: "stepBack" }
   | { type: "reset" }
   | { type: "backToSeeding" };
+
+export interface RatingItem {
+  id: string;
+  title: string;
+  image_url: string;
+  subtitle: string;
+}
+
+export interface RatingState {
+  axis: "x" | "y";
+  items: Record<string, RatingItem>;
+  votes: Record<string, Record<string, number>>;
+  participants: string[];
+  names: Record<string, string>;
+}
+
+export type RatingOp =
+  | { type: "addItems"; items: Partial<RatingItem>[] }
+  | { type: "removeItem"; itemId: string }
+  | { type: "vote"; itemId: string; score: number | null }
+  | { type: "setAxis"; axis: "x" | "y" }
+  | { type: "removeParticipant"; userId: string };
+
+export interface AniListUser {
+  id: number;
+  name: string;
+  avatar: string | null;
+}

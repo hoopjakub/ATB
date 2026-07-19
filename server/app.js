@@ -21,6 +21,7 @@ import {
 } from "./rooms.js";
 import { autofillEntries } from "./showdownSeed.js";
 import { SIZES } from "./showdown.js";
+import { fetchAniListUserList, UnknownUserError } from "./ratingImport.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -141,6 +142,55 @@ app.post("/api/rooms/:id/showdown/autofill", async (req, res) => {
     res.status(502).json({ error: `autofill failed: ${err.message}` });
   } finally {
     autofillInFlight.delete(id);
+  }
+});
+
+// Anyone in a rating room can import their OWN AniList list — items land on the
+// shared board, their scores land as their votes. Not owner-gated on purpose.
+app.post("/api/rooms/:id/rating/import", async (req, res) => {
+  const id = req.params.id.toUpperCase();
+  const row = await getRoomRow(id);
+  if (!row) return res.status(404).json({ error: "room not found" });
+  if (row.game !== "rating") return res.status(400).json({ error: "not a rating room" });
+  const userId = String(req.body?.userId || "").slice(0, 64);
+  const nick = String(req.body?.nick || "").slice(0, 24);
+  const anilistUser = String(req.body?.anilistUser || "").trim().slice(0, 40);
+  if (!userId || !anilistUser) return res.status(400).json({ error: "who are you / which AniList user?" });
+
+  try {
+    const entries = await fetchAniListUserList(anilistUser);
+    if (!entries.length) return res.status(404).json({ error: `"${anilistUser}" has no completed anime on AniList (or the list is private)` });
+
+    let added = 0;
+    let scored = 0;
+    let skipped = 0;
+    await applyGameUpdate(id, (draft) => {
+      const MAX = 500;
+      for (const e of entries) {
+        if (!draft.items[e.id]) {
+          if (Object.keys(draft.items).length >= MAX) {
+            skipped++;
+            continue;
+          }
+          draft.items[e.id] = { id: e.id, title: e.title, image_url: e.image_url, subtitle: e.subtitle };
+          added++;
+        }
+        // guard on items[e.id]: an entry skipped by the cap must not leave an orphaned vote
+        if (e.score !== null && draft.items[e.id]) {
+          if (!draft.votes[e.id]) draft.votes[e.id] = {};
+          draft.votes[e.id][userId] = e.score;
+          scored++;
+        }
+      }
+      if (scored > 0) {
+        if (!draft.participants.includes(userId)) draft.participants.push(userId);
+        if (nick) draft.names[userId] = nick;
+      }
+    });
+    res.json({ added, scored, skipped, total: entries.length });
+  } catch (err) {
+    const status = err instanceof UnknownUserError ? 404 : 502;
+    res.status(status).json({ error: err.message });
   }
 });
 

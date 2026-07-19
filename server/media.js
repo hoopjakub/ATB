@@ -120,6 +120,29 @@ async function searchAniListCharacters(q) {
   })).filter((i) => i.image_url);
 }
 
+// user search so rating-room imports pick the RIGHT person instead of blindly
+// importing whoever happens to own the typed username. verified live 2026-07:
+// Page.users(search:) returns id/name/avatar{medium}, default avatar included.
+const USER_SEARCH_QUERY = `
+query ($search: String) {
+  Page(page: 1, perPage: 8) {
+    users(search: $search) {
+      id
+      name
+      avatar { medium }
+    }
+  }
+}`;
+
+async function searchAniListUsers(q) {
+  const data = await anilistQuery(USER_SEARCH_QUERY, { search: q });
+  return (data.Page.users || []).map((u) => ({
+    id: u.id,
+    name: u.name,
+    avatar: u.avatar?.medium || null,
+  }));
+}
+
 const EXT_BY_MIME = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -252,6 +275,22 @@ mediaRouter.get("/search/characters", async (req, res) => {
     const items = await searchAniListCharacters(q);
     remember(key, items);
     res.json({ items });
+  } catch (err) {
+    res.status(502).json(searchErrorPayload(err));
+  }
+});
+
+// ---- anilist user lookup (for rating-room list imports) -----------------------
+mediaRouter.get("/search/anilist-users", async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (!q) return res.json({ users: [] });
+  const key = `alusers:${q.toLowerCase()}`;
+  const hit = cached(key);
+  if (hit) return res.json({ users: hit });
+  try {
+    const users = await searchAniListUsers(q);
+    remember(key, users);
+    res.json({ users });
   } catch (err) {
     res.status(502).json(searchErrorPayload(err));
   }

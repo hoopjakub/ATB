@@ -7,11 +7,13 @@ import { useToast } from "../components/Toasts";
 import TierBoard from "../games/tierlist/TierBoard";
 import AlignmentBoard from "../games/alignment/AlignmentBoard";
 import ShowdownBoard from "../games/showdown/ShowdownBoard";
+import RatingBoard from "../games/rating/RatingBoard";
 
 const BOARDS: Record<string, ComponentType<{ roomId: string }>> = {
   tierlist: TierBoard,
   alignment: AlignmentBoard,
   showdown: ShowdownBoard,
+  rating: RatingBoard,
 };
 
 export default function Room() {

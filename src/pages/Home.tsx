@@ -45,7 +45,7 @@ export default function Home() {
           <span className="gamecard__sticker sticker">soon™</span>
           <div className="gamecard__icon">👻</div>
           <div className="gamecard__name">???</div>
-          <div className="gamecard__tag">game #4 happens whenever chaos strikes. suggestions welcome.</div>
+          <div className="gamecard__tag">game #5 happens whenever chaos strikes. suggestions welcome.</div>
         </div>
       </section>
     </main>

@@ -121,6 +121,12 @@ const NAME_EXAMPLES: Record<string, string[]> = {
     "opening theme deathmatch",
     "anime OP vs OP: fight to the death",
   ],
+  rating: [
+    "the group's definitive anime scoreboard",
+    "everything we've watched, judged",
+    "settle the ratings once and for all",
+    "your 10s are my 6es",
+  ],
 };
 
 function randomPlaceholder(game: string): string {
