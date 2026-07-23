@@ -89,3 +89,11 @@ strict-origin-when-cross-origin
 <details open="" aria-label="Request Headers"><summary class="header" jslog="SectionHeader; track: click; context: request-headers"><div class="header-grid-container"><div></div><div class="hide-when-closed"></div><div class="hide-when-closed"></div></div></summary>
 
 </details>
+
+---
+
+## Don't forget — Supabase
+
+- Uploads (multer, `data/uploads`) are still on Render's ephemeral disk, NOT migrated to Supabase Storage. Every redeploy wipes uploaded images (tier-list/alignment uploads specifically — everything else pulls from AniList/RAWG URLs directly, so only the "upload from your device" path is at risk). Fix: swap multer's disk storage for a Supabase Storage bucket upload in `server/media.js`'s `/api/upload` route.
+- `supabase/schema.sql` has to be re-run manually in the SQL Editor for any NEW Supabase project (e.g. if this one ever gets recreated) — there's no automated migration runner.
+- Both `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` need to be set in Render's dashboard env vars (not just local `.env`) for prod to work at all.

@@ -17,6 +17,8 @@ export default function Home() {
     <main className="home">
       <span className="home__deco" style={{ top: -40, left: -50, transform: "rotate(-14deg)" }}>?!</span>
       <span className="home__deco" style={{ bottom: 60, right: -30, transform: "rotate(10deg)" }}>S+</span>
+      <span className="home__deco" style={{ top: 320, right: -60, transform: "rotate(8deg)" }}>VS</span>
+      <span className="home__deco" style={{ bottom: -60, left: -40, transform: "rotate(-6deg)", fontSize: 140 }}>0/10</span>
       <section className="home__mural">
         <h1 className="home__title">
           <span className="row row--all">ALL</span>
@@ -48,6 +50,23 @@ export default function Home() {
           <div className="gamecard__tag">game #5 happens whenever chaos strikes. suggestions welcome.</div>
         </div>
       </section>
+
+      <footer className="sitefooter">
+        <div className="sitefooter__row">
+          <span>© 2026 ALL THE BULLSHIT</span>
+          <span>·</span>
+          <span>no rights reserved, we don't even know what rights are</span>
+        </div>
+        <div className="sitefooter__row">
+          not affiliated with MyAnimeList, AniList, Crunchyroll, your parents, or reality
+        </div>
+        <div className="sitefooter__row">
+          by continuing to use this site you consent to your mid takes being recorded, ranked, and mocked, permanently, by people who claim to love you
+        </div>
+        <div className="sitefooter__row sitefooter__fine">
+          uptime not guaranteed · vibes not guaranteed · friendships survive at your own risk · data lives in a database somewhere, please stop asking which one
+        </div>
+      </footer>
     </main>
   );
 }

@@ -307,7 +307,7 @@ export default function TierBoard({ roomId }: { roomId: string }) {
             <div className={`tier-row__items ${drag?.over?.container === "pool" ? "droptarget" : ""}`} data-items>
               {totalItems === 0 ? (
                 <div className="pool__empty">
-                  the pile is empty. add images below ↓ — search anime, upload memes, paste URLs. then drag them into tiers.
+                  the pile is empty, and so is your ranking of anything. add images below ↓ — search anime, upload memes, paste URLs — then drag them into tiers like the judgmental gremlin you are.
                 </div>
               ) : (
                 renderItems("pool", state.pool)

@@ -323,10 +323,10 @@ export default function AlignmentBoard({ roomId }: { roomId: string }) {
               <div className="align-shelf-items">
                 {totalItems === 0 ? (
                   <div className="pool__empty">
-                    add images below ↓, then drag them anywhere on the chart. label the four edges above to define what the axes mean.
+                    add images below ↓, then drag them anywhere on the chart. label the four edges above so everyone knows what quadrant of hell they've landed in.
                   </div>
                 ) : state.shelf.length === 0 ? (
-                  <div className="pool__empty">everything's placed. add more images below, or drag one back up here to unplace it.</div>
+                  <div className="pool__empty">everything's placed. no more indecisive hovering — add more images below, or drag one back up here if you've had a change of heart.</div>
                 ) : (
                   state.shelf.map((id) => {
                     if (drag?.itemId === id) return null;

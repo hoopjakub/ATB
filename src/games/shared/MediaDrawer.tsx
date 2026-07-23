@@ -110,10 +110,11 @@ function SearchPane({
   if (noKey) {
     return (
       <p className="hint">
-        game search needs a (free) RAWG API key — grab one at{" "}
+        game search needs a (free) RAWG API key — the anime search didn't ask for permission slips, but this one does.
+        grab one at{" "}
         <a href="https://rawg.io/apidocs" target="_blank" rel="noreferrer">rawg.io/apidocs</a>, put{" "}
         <span className="mono">RAWG_API_KEY=...</span> into <span className="mono">.env</span> and restart the server.
-        uploads &amp; anime search work fine without it.
+        uploads &amp; anime search work fine without it, they have main character energy.
       </p>
     );
   }

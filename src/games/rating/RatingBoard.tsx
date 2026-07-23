@@ -209,7 +209,7 @@ export default function RatingBoard({ roomId }: { roomId: string }) {
                 <h3 className="rating-heading">needs your vote · {derived.myQueue.length}</h3>
                 <div className="rating-queue">
                   {derived.myQueue.length === 0 ? (
-                    <div className="pool__empty">nothing waiting on you. add more anime above.</div>
+                    <div className="pool__empty">nothing waiting on you, suspicious. add more anime above and get back to judging.</div>
                   ) : (
                     derived.myQueue.map((item) => (
                       <button key={item.id} className="rating-card" onClick={() => setVotingOn(item)} title={`rate "${item.title}"`}>
@@ -274,21 +274,41 @@ function AddPanel({
   const toast = useToast();
   const [anilistUser, setAnilistUser] = useState("");
   const [importing, setImporting] = useState(false);
+  const [matches, setMatches] = useState<AniListUser[] | null>(null);
+  const [searchingUsers, setSearchingUsers] = useState(false);
   const [q, setQ] = useState("");
   const [results, setResults] = useState<MediaItem[]>([]);
   const [searching, setSearching] = useState(false);
 
-  const runImport = async (e: FormEvent) => {
+  const findUsers = async (e: FormEvent) => {
     e.preventDefault();
     if (!anilistUser.trim()) return;
+    setSearchingUsers(true);
+    setMatches(null);
+    try {
+      const d = await api<{ users: AniListUser[] }>(`/api/search/anilist-users?q=${encodeURIComponent(anilistUser.trim())}`);
+      if (!d.users.length) {
+        toast(`no AniList user matches "${anilistUser.trim()}"`);
+      } else {
+        setMatches(d.users);
+      }
+    } catch (err: any) {
+      toast(err.message);
+    } finally {
+      setSearchingUsers(false);
+    }
+  };
+
+  const importFrom = async (name: string) => {
     setImporting(true);
     try {
       const r = await api<{ added: number; scored: number; skipped: number }>(`/api/rooms/${roomId}/rating/import`, {
         method: "POST",
-        body: JSON.stringify({ userId: user.id, nick: user.nick, anilistUser: anilistUser.trim() }),
+        body: JSON.stringify({ userId: user.id, nick: user.nick, anilistUser: name }),
       });
       toast(`imported ${r.added} anime, ${r.scored} of your scores${r.skipped ? ` (${r.skipped} skipped — board full)` : ""}`);
       setAnilistUser("");
+      setMatches(null);
     } catch (err: any) {
       toast(err.message);
     } finally {
@@ -313,15 +333,36 @@ function AddPanel({
 
   return (
     <div className="rating-addpanel">
-      <form className="rating-import" onSubmit={runImport}>
+      <form className="rating-import" onSubmit={findUsers}>
         <label className="label">import your AniList (adds the anime + your scores)</label>
         <div className="drawer__search">
-          <input className="input" value={anilistUser} onChange={(e) => setAnilistUser(e.target.value)} placeholder="your AniList username" maxLength={40} />
-          <button className="btn btn--sm" type="submit" disabled={importing}>
-            {importing ? "importing…" : "import"}
+          <input
+            className="input"
+            value={anilistUser}
+            onChange={(e) => { setAnilistUser(e.target.value); setMatches(null); }}
+            placeholder="your AniList username"
+            maxLength={40}
+          />
+          <button className="btn btn--sm" type="submit" disabled={searchingUsers || importing}>
+            {searchingUsers ? "…" : "find"}
           </button>
         </div>
-        <p className="hint">MAL isn't importable by username anymore (they killed the public list API) — AniList only. you can mirror your MAL to AniList and import that.</p>
+        <p className="hint">
+          MAL isn't importable by username anymore — they killed the public list API right as we needed it, deeply personal. AniList only; you can mirror your MAL list over to AniList and import that instead.
+        </p>
+        {matches && (
+          <div className="rating-userpicker">
+            <span className="hint">that you? pick the right one — usernames aren't unique:</span>
+            <div className="rating-userlist">
+              {matches.map((u) => (
+                <button key={u.id} className="rating-userrow" disabled={importing} onClick={() => importFrom(u.name)} title={`import ${u.name}'s list`}>
+                  {u.avatar ? <img src={u.avatar} alt="" /> : <span className="rating-userrow__noavatar">?</span>}
+                  <span>{u.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </form>
 
       <form className="rating-search" onSubmit={search}>
@@ -371,11 +412,31 @@ function ScaleAxis({
   onEdit: (item: RatingItem) => void;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [crossSize, setCrossSize] = useState(700);
+
+  // cross-axis = the dimension perpendicular to the score line (width for a
+  // vertical scale, height for a horizontal one) — that's what bounds how many
+  // tied items can sit side by side before they'd run off the edge
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => setCrossSize(axis === "y" ? el.clientWidth : el.clientHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [axis]);
+
+  const ITEM_PITCH = 60; // dot width (52px) + gap
+  const maxCols = Math.max(1, Math.floor((crossSize - 70) / ITEM_PITCH));
 
   // collision handling: greedy lane assignment. sorted by score, each item
   // takes the first lane whose previous occupant is far enough away in score
-  // units that the covers can't overlap (dot is ~52px on a ~760px axis, so
-  // ~0.75 points of clearance). identical scores stack into parallel lanes
+  // units that the covers can't overlap (~0.75 points of clearance on a
+  // 760px-tall axis). identical scores stack into parallel lanes, and once a
+  // "row" of lanes fills the container's cross-size, ties wrap into a new row
+  // nudged along the score axis instead of running off the edge
   const placed = useMemo(() => {
     const MIN_GAP = 0.78;
     const sorted = [...revealed].sort((a, b) => b.avg - a.avg);
@@ -388,22 +449,24 @@ function ScaleAxis({
       } else {
         lanes[lane] = r.avg;
       }
-      return { ...r, offset: lane };
+      const row = Math.floor(lane / maxCols);
+      const col = lane % maxCols;
+      return { ...r, crossPx: 64 + col * ITEM_PITCH, alongNudgePx: row * 54 };
     });
-  }, [revealed]);
+  }, [revealed, maxCols]);
 
   const ticks = Array.from({ length: 11 }, (_, i) => i);
 
   if (revealed.length === 0) {
     return (
       <div className="pool__empty" style={{ padding: "60px 20px" }}>
-        nothing revealed yet — an anime shows up here once EVERYONE who's voting has scored it.
+        nothing revealed yet — an anime shows up here once EVERYONE who's voting has scored it. democracy is slow.
       </div>
     );
   }
 
   return (
-    <div className={`rating-axis rating-axis--${axis}`}>
+    <div className={`rating-axis rating-axis--${axis}`} ref={containerRef}>
       <div className="rating-axis__line" />
       {ticks.map((t) => (
         <div
@@ -414,10 +477,10 @@ function ScaleAxis({
           <span>{t}</span>
         </div>
       ))}
-      {placed.map(({ item, avg, votes, offset }) => {
+      {placed.map(({ item, avg, votes, crossPx, alongNudgePx }) => {
         const pos = axis === "y"
-          ? { top: `${(1 - avg / 10) * 100}%`, left: `${64 + offset * 60}px` }
-          : { left: `${(avg / 10) * 100}%`, top: `${44 + offset * 60}px` };
+          ? { top: `calc(${(1 - avg / 10) * 100}% + ${alongNudgePx}px)`, left: `${crossPx}px` }
+          : { left: `calc(${(avg / 10) * 100}% + ${alongNudgePx}px)`, top: `${crossPx}px` };
         return (
           <div
             key={item.id}
@@ -425,6 +488,8 @@ function ScaleAxis({
             style={pos}
             onPointerEnter={() => setHovered(item.id)}
             onPointerLeave={() => setHovered((h) => (h === item.id ? null : h))}
+            onClick={() => onEdit(item)}
+            title="click to edit your vote"
           >
             <img src={item.image_url} alt={item.title} loading="lazy" />
             <span className="rating-dot__avg">{avg.toFixed(1)}</span>
@@ -436,7 +501,7 @@ function ScaleAxis({
                   .map(([uid, score]) => (
                     <div key={uid} className="rating-tooltip__row">
                       <span>{nickOf(uid)}</span>
-                      <strong>{score.toFixed(1)}</strong>
+                      <strong>{fmt(score)}</strong>
                     </div>
                   ))}
                 <div className="rating-tooltip__row rating-tooltip__row--avg">
@@ -444,7 +509,12 @@ function ScaleAxis({
                   <strong>{avg.toFixed(2)}</strong>
                 </div>
                 {isOwner && (
-                  <button className="btn btn--danger btn--sm no-export" style={{ marginTop: 6 }} onPointerDown={(e) => e.stopPropagation()} onClick={() => onRemove(item.id)}>
+                  <button
+                    className="btn btn--danger btn--sm no-export"
+                    style={{ marginTop: 6 }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); onRemove(item.id); }}
+                  >
                     remove
                   </button>
                 )}
@@ -476,7 +546,7 @@ function VoteModal({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!valid) return;
-    onSave(Math.round(parsed * 10) / 10);
+    onSave(Math.round(parsed * 100) / 100);
   };
 
   return (
@@ -517,7 +587,7 @@ function VoteModal({
               </button>
             )}
             <button className="btn" type="submit" disabled={!valid}>
-              {current !== undefined ? "update" : "cast"} vote{valid ? ` · ${(Math.round(parsed * 10) / 10).toFixed(1)}` : ""}
+              {current !== undefined ? "update" : "cast"} vote{valid ? ` · ${fmt(Math.round(parsed * 100) / 100)}` : ""}
             </button>
           </div>
         </form>

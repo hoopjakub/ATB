@@ -339,7 +339,7 @@ function SeedingView({
         </h2>
         <p className="hint">
           {contentTypeLabel(state.contentType)} tournament — {state.size} entries needed before
-          anyone can hit start.
+          anyone can hit start. yes, all of them. no skipping to the good part.
         </p>
       </div>
 
@@ -352,7 +352,7 @@ function SeedingView({
             {!autofilling && (
               <p className="hint" style={{ marginTop: 6 }}>
                 usually takes around ~{estimateSeconds}s for a bracket this size — bigger brackets take longer, it's
-                pulling real data per anime, not instant.
+                pulling real data per anime, not vibes. go make a sandwich.
               </p>
             )}
           </div>
@@ -378,7 +378,7 @@ function SeedingView({
 
       <div className="showdown-entrylist">
         {entries.length === 0 ? (
-          <div className="pool__empty">no entries yet. {isOwner ? "hit auto-fill above, or add some manually." : "waiting on the room owner."}</div>
+          <div className="pool__empty">no entries yet, the bracket is a void. {isOwner ? "hit auto-fill above, or add some manually." : "waiting on the room owner to get their act together."}</div>
         ) : (
           entries.map((en) => (
             <div key={en.id} className="showdown-entryrow">
@@ -478,8 +478,8 @@ function MatchView({
       {(left?.kind === "file" || right?.kind === "file") && (
         <p className="hint showdown-match__videohint">
           {audioOnly
-            ? "audio-only mode — much smaller files, should load fast even on slow connections."
-            : "videos stream from a third-party archive — first play can take a few seconds to buffer, that's normal, not broken."}
+            ? "audio-only mode — much smaller files, should load fast even on your cursed dorm wifi."
+            : "videos stream from a third-party archive — first play can take a few seconds to buffer, that's normal, not broken, breathe."}
         </p>
       )}
 
